@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>星火 · 启蒙 - 繁花化星</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/AfterimageShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/AfterimagePass.js"></script>
+
+    <style>
+        body { 
+            margin: 0; background: #020306; color: white; overflow: hidden; touch-action: none; 
+            font-family: "SimSun", "STSong", serif; 
+        }
+        #webgl-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; }
+        
+        #ui-layer { position: absolute; top: 5%; width: 100%; text-align: center; pointer-events: none; z-index: 10; }
+        h1 { font-size: 24px; color: #aaddff; letter-spacing: 6px; text-shadow: 0 0 15px rgba(0,255,255,0.4); font-weight: normal; margin: 0;}
+        p { font-size: 15px; color: rgba(255,255,255,0.5); margin-top: 12px; letter-spacing: 2px; }
+
+        #ground-glow {
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 25%;
+            background: linear-gradient(to top, rgba(5, 40, 20, 0.6), transparent);
+            pointer-events: none; z-index: 5;
+        }
+
+        /* 右侧星火收集管 UI */
+        #star-repository {
+            position: fixed; top: 10%; right: 15px; bottom: 15%; width: 150px;
+            background: linear-gradient(to bottom, rgba(0, 255, 255, 0.05), rgba(0, 30, 40, 0.6), rgba(0, 255, 255, 0.05));
+            backdrop-filter: blur(8px);
+            border-left: 1px solid rgba(0, 255, 255, 0.3);
+            border-right: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 20px; z-index: 80;
+            display: flex; flex-direction: column;
+            padding: 15px 10px; box-sizing: border-box;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.1), inset 0 0 20px rgba(0, 255, 255, 0.1);
+            pointer-events: auto; 
+        }
+        #repo-header {
+            font-size: 14px; color: rgba(0, 255, 255, 0.9); font-weight: bold; letter-spacing: 2px;
+            text-align: center; border-bottom: 1px solid rgba(0, 255, 255, 0.3);
+            padding-bottom: 10px; margin-bottom: 10px; font-family: "Microsoft YaHei", sans-serif;
+        }
+        #star-count { font-size: 26px; color: #ffcc00; display: block; margin-top: 5px; text-shadow: 0 0 15px #ffcc00;}
+
+        #collection-log {
+            flex-grow: 1; overflow-y: auto;
+            color: rgba(255,255,255,0.7); font-size: 12px; line-height: 1.6;
+            font-family: "Microsoft YaHei", sans-serif; padding-right: 5px;
+        }
+        #collection-log::-webkit-scrollbar { width: 2px; }
+        #collection-log::-webkit-scrollbar-thumb { background: rgba(0, 255, 255, 0.4); border-radius: 2px; }
+
+        .log-entry { margin-bottom: 10px; border-bottom: 1px dashed rgba(255,255,255,0.15); padding-bottom: 5px;}
+        .log-time { font-size: 10px; color: rgba(0, 255, 255, 0.6); display: block; margin-top: 2px;}
+
+        /* 星星飞行动画 */
+        .flying-star {
+            position: fixed; font-size: 36px; color: #ffcc00;
+            z-index: 1000; pointer-events: none; 
+            transition: left 2.5s cubic-bezier(0.25, 1, 0.5, 1), 
+                        top 2.5s cubic-bezier(0.25, 1, 0.5, 1), 
+                        transform 2.5s ease-in, 
+                        opacity 2.5s ease-in;
+            transform: translate(-50%, -50%) scale(1);
+            animation: starBlink 0.3s infinite alternate;
+        }
+        
+        @keyframes starBlink {
+            0% { filter: drop-shadow(0 0 5px #ffaa00) brightness(1); opacity: 0.8; }
+            100% { filter: drop-shadow(0 0 25px #ffffff) brightness(1.5); opacity: 1; }
+        }
+
+        .flying-star.collected {
+            transform: translate(-50%, -50%) scale(0.2); 
+            opacity: 0.1 !important; 
+        }
+
+        @media (max-width: 768px) {
+            #star-repository { width: 120px; top: 15px; max-height: 40vh; bottom: auto; border-radius: 12px; }
+            #star-count { font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="ui-layer">
+        <h1 id="title-text">春雨生花</h1>
+        <p>雨滴滋养幼苗，五次浇灌即可结出思想的花苞。<br>点击绽放的花朵，将其化作星火收集。</p>
+    </div>
+    
+    <div id="star-repository">
+        <div id="repo-header">星火储备<span id="star-count">0</span></div>
+        <div id="collection-log"></div>
+    </div>
+
+    <div id="ground-glow"></div>
+    <div id="webgl-container"></div>
+
+<script>
+    // 扩充思想语录库，保证随机抽取时内容丰富
+    const quoteGroups = [
+        "革命者\n天演之公例也",
+        "大江东去\n浪淘尽千古英雄",
+        "天下者\n我们的天下",
+        "须知今日之世界\n乃青年之世界",
+        "长夜难明赤县天\n百年魔怪舞翩跹",
+        "吾以吾血\n荐轩辕",
+        "唤起吾国\n四万万人之觉悟",
+        "前途似海\n来日方长",
+        "星星之火\n可以燎原"
+    ];
+    let currentQuoteIndex = 0;
+    let collectedStars = 0;
+
+    let scene, camera, renderer, composer;
+    let textParticles = null;
+    let atlasTexture = null;
+    let gridSize = 1;
+    let charMap = {};
+    let isShattering = false;
+    let activeDrops = 0; 
+    let textOpacityTarget = 1.0; 
+
+    const MAX_GRASS = 2000;
+    let leftLeafMesh, rightLeafMesh, flowerMesh; 
+    let grassData = []; 
+    const dummy = new THREE.Object3D(); 
+    let raycaster, mouse;
+
+    const vertexShader = `
+        attribute vec2 charUvOffset;
+        attribute float isFalling;
+        attribute float randomSeed;
+        varying vec2 vCharUvOffset;
+        varying float vIsFalling;
+        varying float vRandomSeed;
+        void main() {
+            vCharUvOffset = charUvOffset;
+            vIsFalling = isFalling;
+            vRandomSeed = randomSeed;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            float size = isFalling > 0.5 ? 20.0 : 30.0;
+            gl_PointSize = size * (800.0 / -mvPosition.z);
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    `;
+
+    const fragmentShader = `
+        uniform sampler2D uTexture;
+        uniform float uGridSize;
+        uniform float uGlobalOpacity; 
+        uniform float uTime;
+        varying vec2 vCharUvOffset;
+        varying float vIsFalling;
+        varying float vRandomSeed;
+        void main() {
+            float vMap = vCharUvOffset.y + (1.0 - gl_PointCoord.y) / uGridSize;
+            float uMap = vCharUvOffset.x + gl_PointCoord.x / uGridSize;
+            vec2 cellUv = vec2(uMap, vMap);
+            
+            vec4 texColor = texture2D(uTexture, cellUv);
+            if (texColor.a < 0.1) discard; 
+            
+            float twinkle = sin(uTime * 2.0 + vRandomSeed * 10.0) * 0.5 + 0.5; 
+            float baseAlpha = mix(0.15, 0.9, twinkle);
+            
+            vec3 color = vIsFalling > 0.5 ? vec3(0.7, 1.0, 1.0) : vec3(0.6, 0.8, 0.9);
+            baseAlpha = vIsFalling > 0.5 ? 1.0 : baseAlpha;
+            
+            gl_FragColor = vec4(color * texColor.rgb, texColor.a * baseAlpha * uGlobalOpacity);
+        }
+    `;
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x020306, 0.0015);
+
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 2000);
+        camera.position.set(0, 30, 650);
+
+        renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.getElementById('webgl-container').appendChild(renderer.domElement);
+
+        raycaster = new THREE.Raycaster();
+        mouse = new THREE.Vector2();
+
+        const renderPass = new THREE.RenderPass(scene, camera);
+        const afterimagePass = new THREE.AfterimagePass();
+        afterimagePass.uniforms['damp'].value = 0.85; 
+
+        const bloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight), 2.0, 0.3, 0.1
+        );
+
+        composer = new THREE.EffectComposer(renderer);
+        composer.addPass(renderPass);
+        composer.addPass(afterimagePass);
+        composer.addPass(bloomPass);
+
+        initSeedlingAndFlowerSystem();
+        
+        // 初始随机生成一句名言
+        currentQuoteIndex = Math.floor(Math.random() * quoteGroups.length);
+        generateTextScene(quoteGroups[currentQuoteIndex]);
+
+        window.addEventListener('click', onInteract, false);
+        window.addEventListener('touchstart', onInteract, {passive: false});
+        window.addEventListener('resize', onWindowResize, false);
+
+        animate();
+    }
+
+    function initSeedlingAndFlowerSystem() {
+        const leafGeom = new THREE.ConeGeometry(2.5, 14, 4);
+        leafGeom.scale(1, 1, 0.15); 
+        leafGeom.translate(0, 7, 0); 
+
+        const leftGeom = leafGeom.clone();
+        leftGeom.rotateZ(0.5); leftGeom.rotateX(0.2);
+        const rightGeom = leafGeom.clone();
+        rightGeom.rotateZ(-0.5); rightGeom.rotateX(-0.2);
+
+        const leafMat = new THREE.MeshBasicMaterial({ color: 0x55ff66 });
+        leftLeafMesh = new THREE.InstancedMesh(leftGeom, leafMat, MAX_GRASS);
+        rightLeafMesh = new THREE.InstancedMesh(rightGeom, leafMat, MAX_GRASS);
+        
+        const flowerGeom = new THREE.IcosahedronGeometry(4, 0); 
+        flowerGeom.translate(0, 16, 0); 
+        const flowerMat = new THREE.MeshBasicMaterial({ color: 0xff3366 }); 
+        flowerMesh = new THREE.InstancedMesh(flowerGeom, flowerMat, MAX_GRASS);
+
+        leftLeafMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        rightLeafMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        flowerMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        
+        scene.add(leftLeafMesh);
+        scene.add(rightLeafMesh);
+        scene.add(flowerMesh);
+
+        for(let i=0; i<MAX_GRASS; i++) {
+            grassData.push({
+                active: false,
+                x: 0, z: 0,
+                scale: 0, targetScale: 0,
+                waterCount: 0, 
+                flowerScale: 0, targetFlowerScale: 0,
+                isBloomed: false, isCollected: false,
+                swayOffset: Math.random() * Math.PI * 2 
+            });
+            dummy.scale.set(0,0,0);
+            dummy.updateMatrix();
+            leftLeafMesh.setMatrixAt(i, dummy.matrix);
+            rightLeafMesh.setMatrixAt(i, dummy.matrix);
+            flowerMesh.setMatrixAt(i, dummy.matrix);
+        }
+    }
+
+    function spawnOrGrowGrass(x, z) {
+        for(let i=0; i<MAX_GRASS; i++) {
+            if(grassData[i].active && !grassData[i].isCollected) {
+                const dx = grassData[i].x - x;
+                const dz = grassData[i].z - z;
+                if(dx*dx + dz*dz < 1200) { 
+                    grassData[i].waterCount++;
+                    
+                    if (grassData[i].waterCount <= 4) {
+                        grassData[i].targetScale = Math.min(grassData[i].targetScale + 0.4, 2.5);
+                    } 
+                    else if (!grassData[i].isBloomed) {
+                        let bloomStage = grassData[i].waterCount - 4; 
+                        grassData[i].targetFlowerScale = Math.min(bloomStage * 0.35, 1.2); 
+                        
+                        if (grassData[i].targetFlowerScale >= 1.2) {
+                            grassData[i].isBloomed = true;
+                        }
+                    }
+                    return; 
+                }
+            }
+        }
+
+        for(let i=0; i<MAX_GRASS; i++) {
+            if(!grassData[i].active) {
+                grassData[i].active = true;
+                grassData[i].x = x + (Math.random()-0.5)*20;
+                grassData[i].z = z + (Math.random()-0.5)*20;
+                grassData[i].scale = 0.01; 
+                grassData[i].targetScale = 0.6 + Math.random() * 0.4; 
+                grassData[i].waterCount = 1;
+                return;
+            }
+        }
+    }
+
+    function onInteract(event) {
+        let clientX = event.clientX;
+        let clientY = event.clientY;
+        if (event.touches && event.touches.length > 0) {
+            clientX = event.touches[0].clientX;
+            clientY = event.touches[0].clientY;
+        }
+        mouse.x = (clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+
+        const intersectsFlower = raycaster.intersectObject(flowerMesh);
+        for (let hit of intersectsFlower) {
+            const id = hit.instanceId;
+            const grass = grassData[id];
+            if (grass.isBloomed && !grass.isCollected) {
+                collectStarFlower(id, grass);
+                return; 
+            }
+        }
+
+        triggerRain();
+    }
+
+    function collectStarFlower(id, grass) {
+        grass.isCollected = true;
+        
+        // 幼苗与花梗枯萎消散
+        grass.targetScale = 0.0; 
+        grass.targetFlowerScale = 0.0;
+
+        const worldPos = new THREE.Vector3(grass.x, -160 + 16 * grass.scale, grass.z);
+        worldPos.project(camera);
+        const screenX = (worldPos.x * 0.5 + 0.5) * window.innerWidth;
+        const screenY = (worldPos.y * -0.5 + 0.5) * window.innerHeight;
+
+        const starEl = document.createElement('div');
+        starEl.innerHTML = '⭐';
+        starEl.className = 'flying-star';
+        starEl.style.left = screenX + 'px';
+        starEl.style.top = screenY + 'px';
+        document.body.appendChild(starEl);
+
+        void starEl.offsetWidth; 
+
+        const repo = document.getElementById('star-repository');
+        const rect = repo.getBoundingClientRect();
+        
+        starEl.style.left = (rect.left + rect.width / 2) + 'px';
+        starEl.style.top = (rect.top + 40) + 'px';
+        starEl.classList.add('collected');
+
+        setTimeout(() => {
+            starEl.remove();
+            collectedStars++;
+            document.getElementById('star-count').innerText = collectedStars;
+            
+            const logDiv = document.getElementById('collection-log');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const now = new Date();
+            const timeStr = String(now.getMonth()+1).padStart(2,'0') + "-" + String(now.getDate()).padStart(2,'0') + " " + String(now.getHours()).padStart(2,'0') + ":" + String(now.getMinutes()).padStart(2,'0');
+            
+            logEntry.innerHTML = '✨ 思想入库<span class="log-time">' + timeStr + '</span>';
+            logDiv.prepend(logEntry); 
+        }, 2500); 
+    }
+
+
+    function generateCharAtlas(text) {
+        const uniqueChars = Array.from(new Set(text.replace(/\n/g, '').split('')));
+        gridSize = Math.ceil(Math.sqrt(uniqueChars.length));
+        if (gridSize === 0) gridSize = 1;
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = 1024; canvas.height = 1024;
+        const ctx = canvas.getContext('2d');
+        const cellSize = 1024 / gridSize;
+
+        ctx.fillStyle = 'rgba(0,0,0,0)'; 
+        ctx.fillRect(0, 0, 1024, 1024);
+        ctx.fillStyle = '#ffffff'; 
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold ' + (cellSize * 0.75) + 'px "SimSun", "STSong", serif';
+
+        charMap = {};
+        for (let i = 0; i < uniqueChars.length; i++) {
+            const char = uniqueChars[i];
+            const col = i % gridSize;
+            const row = Math.floor(i / gridSize);
+            charMap[char] = { u: col / gridSize, v: 1.0 - (row + 1) / gridSize };
+            ctx.fillText(char, col * cellSize + cellSize / 2, row * cellSize + cellSize / 2);
+        }
+
+        if(atlasTexture) atlasTexture.dispose();
+        atlasTexture = new THREE.CanvasTexture(canvas);
+        atlasTexture.minFilter = THREE.LinearFilter;
+    }
+
+    function generateTextScene(textStr) {
+        if (textParticles) scene.remove(textParticles);
+        isShattering = false;
+        textOpacityTarget = 1.0; 
+
+        generateCharAtlas(textStr);
+
+        const positions = [];
+        const velocities = [];
+        const charUvOffsets = [];
+        const randomSeeds = [];
+        const isFallingArr = [];
+
+        const lines = textStr.split('\n');
+        const spacingX = window.innerWidth > 768 ? 28 : 20; 
+        const spacingY = window.innerWidth > 768 ? 38 : 30; 
+
+        const totalHeight = lines.length * spacingY;
+        let currentY = totalHeight / 2 + 50;
+
+        lines.forEach(line => {
+            let startX = - (line.length * spacingX) / 2;
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                positions.push(startX + i * spacingX, currentY, (Math.random() - 0.5) * 15);
+                velocities.push(0, 0, 0);
+                randomSeeds.push(Math.random());
+                isFallingArr.push(0.0); 
+
+                const uv = charMap[char] || charMap[lines[0][0]];
+                charUvOffsets.push(uv.u, uv.v);
+            }
+            currentY -= spacingY;
+        });
+
+        activeDrops = positions.length / 3;
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('velocity', new THREE.Float32BufferAttribute(velocities, 3));
+        geometry.setAttribute('charUvOffset', new THREE.Float32BufferAttribute(charUvOffsets, 2));
+        geometry.setAttribute('randomSeed', new THREE.Float32BufferAttribute(randomSeeds, 1));
+        geometry.setAttribute('isFalling', new THREE.Float32BufferAttribute(isFallingArr, 1));
+
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                uTexture: { value: atlasTexture },
+                uGridSize: { value: gridSize },
+                uGlobalOpacity: { value: 0.0 }, 
+                uTime: { value: 0.0 }
+            },
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        textParticles = new THREE.Points(geometry, material);
+        scene.add(textParticles);
+    }
+
+    function triggerRain() {
+        if (isShattering || !textParticles || activeDrops <= 0) return;
+        isShattering = true;
+        
+        const vels = textParticles.geometry.attributes.velocity.array;
+        const falling = textParticles.geometry.attributes.isFalling.array;
+        const count = vels.length / 3;
+
+        for (let i = 0; i < count; i++) {
+            falling[i] = 1.0; 
+            vels[i*3+1] = - (Math.random() * 2.0 + 1.0); 
+            vels[i*3] = (Math.random() - 0.5) * 2.0;   
+            vels[i*3+2] = (Math.random() - 0.5) * 3.0; 
+        }
+        
+        textParticles.geometry.attributes.velocity.needsUpdate = true;
+        textParticles.geometry.attributes.isFalling.needsUpdate = true;
+    }
+
+    // --- 核心优化：随机选择下一句不重复的名言 ---
+    function loadNextQuote() {
+        let nextIndex;
+        do {
+            nextIndex = Math.floor(Math.random() * quoteGroups.length);
+        } while (nextIndex === currentQuoteIndex && quoteGroups.length > 1);
+        currentQuoteIndex = nextIndex;
+        generateTextScene(quoteGroups[currentQuoteIndex]);
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        composer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const time = Date.now() * 0.001;
+
+        let meshUpdated = false;
+        for(let i=0; i<MAX_GRASS; i++) {
+            if(grassData[i].active) {
+                let diffScale = grassData[i].targetScale - grassData[i].scale;
+                grassData[i].scale += diffScale * 0.025; 
+                
+                let diffFlower = grassData[i].targetFlowerScale - grassData[i].flowerScale;
+                grassData[i].flowerScale += diffFlower * 0.04;
+
+                if(grassData[i].isCollected && grassData[i].scale < 0.02) {
+                    grassData[i].active = false;
+                    grassData[i].waterCount = 0;
+                    grassData[i].isBloomed = false;
+                    grassData[i].isCollected = false;
+                    grassData[i].scale = 0;
+                    grassData[i].flowerScale = 0;
+                    
+                    dummy.scale.set(0,0,0);
+                    dummy.updateMatrix();
+                    leftLeafMesh.setMatrixAt(i, dummy.matrix);
+                    rightLeafMesh.setMatrixAt(i, dummy.matrix);
+                    flowerMesh.setMatrixAt(i, dummy.matrix);
+                    continue; 
+                }
+
+                const s = grassData[i].scale;
+                const fScale = grassData[i].flowerScale * s; 
+
+                dummy.position.set(grassData[i].x, -160, grassData[i].z); 
+                dummy.rotation.x = Math.sin(time * 1.5 + grassData[i].swayOffset) * 0.15;
+                dummy.rotation.z = Math.cos(time * 1.0 + grassData[i].swayOffset) * 0.15;
+                dummy.rotation.y = grassData[i].swayOffset; 
+                
+                dummy.scale.set(s, s, s);
+                dummy.updateMatrix();
+                leftLeafMesh.setMatrixAt(i, dummy.matrix);
+                rightLeafMesh.setMatrixAt(i, dummy.matrix);
+
+                let finalFlowerScale = fScale;
+                if (grassData[i].isBloomed && !grassData[i].isCollected) {
+                    finalFlowerScale += Math.sin(time * 5 + i) * 0.1 * s;
+                }
+                dummy.scale.set(finalFlowerScale, finalFlowerScale, finalFlowerScale);
+                dummy.updateMatrix();
+                flowerMesh.setMatrixAt(i, dummy.matrix);
+                
+                meshUpdated = true;
+            }
+        }
+        if(meshUpdated) {
+            leftLeafMesh.instanceMatrix.needsUpdate = true;
+            rightLeafMesh.instanceMatrix.needsUpdate = true;
+            flowerMesh.instanceMatrix.needsUpdate = true;
+        }
+
+        if (textParticles) {
+            textParticles.material.uniforms.uTime.value = time;
+            
+            const matOp = textParticles.material.uniforms.uGlobalOpacity;
+            if (matOp.value < textOpacityTarget) {
+                // --- 核心优化：文字浮现速度翻倍 ---
+                matOp.value = Math.min(1.0, matOp.value + 0.030);
+            }
+
+            if (!isShattering) {
+                textParticles.position.y = Math.sin(time * 1.5) * 6;
+            } else {
+                const pos = textParticles.geometry.attributes.position.array;
+                const vels = textParticles.geometry.attributes.velocity.array;
+                const falling = textParticles.geometry.attributes.isFalling.array;
+                const count = pos.length / 3;
+
+                for (let i = 0; i < count; i++) {
+                    if (falling[i] > 0.5) {
+                        pos[i*3] += vels[i*3];
+                        pos[i*3+1] += vels[i*3+1];
+                        pos[i*3+2] += vels[i*3+2];
+                        
+                        vels[i*3+1] -= 0.12; 
+                        
+                        if (pos[i*3+1] < -160) {
+                            if (Math.abs(vels[i*3+1]) > 1.5) {
+                                pos[i*3+1] = -160; 
+                                vels[i*3+1] *= -0.35; 
+                                vels[i*3] *= 0.7; 
+                                vels[i*3+2] *= 0.7;
+                            } else {
+                                falling[i] = 0.0; 
+                                pos[i*3+1] = -1000; 
+                                spawnOrGrowGrass(pos[i*3], pos[i*3+2]);
+                                activeDrops--;
+                            }
+                        }
+                    }
+                }
+                textParticles.geometry.attributes.position.needsUpdate = true;
+                
+                if (activeDrops <= 0 && isShattering) {
+                    isShattering = false; 
+                    textOpacityTarget = 0.0; 
+                    // --- 核心优化：等待时间减半，节奏更加紧凑 ---
+                    setTimeout(() => { 
+                        loadNextQuote(); 
+                    }, 1000);
+                }
+            }
+        }
+
+        composer.render();
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>
